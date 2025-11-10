@@ -1,0 +1,60 @@
+import tensorflow as tf
+import numpy as np
+import urllib.request
+import matplotlib.pyplot as plt
+
+url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
+urllib.request.urlretrieve(url, 'shakespeare.txt')
+text = open('shakespeare.txt', 'r', encoding='utf-8').read().lower()
+
+chars = sorted(list(set(text)))
+vocab_size = len(chars)
+char_to_idx = {c: i for i, c in enumerate(chars)}
+idx_to_char = {i: c for i, c in enumerate(chars)}
+
+seq_len = 60
+x_data, y_data = [], []
+for i in range(0, len(text) - seq_len, 3):
+    seq = text[i:i + seq_len]
+    next_char = text[i + seq_len]
+    x_data.append([char_to_idx[c] for c in seq])
+    y_data.append(char_to_idx[next_char])
+
+x = tf.keras.utils.to_categorical(x_data, num_classes=vocab_size)
+y = tf.keras.utils.to_categorical(y_data, num_classes=vocab_size)
+
+model = tf.keras.Sequential([
+    tf.keras.layers.LSTM(128, input_shape=(seq_len, vocab_size)),
+    tf.keras.layers.Dense(vocab_size, activation='softmax')
+])
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+history = model.fit(x, y, batch_size=128, epochs=10, verbose=2)
+
+def sample(preds, temperature=1.0):
+    preds = np.log(preds + 1e-8) / temperature
+    preds = np.exp(preds) / np.sum(np.exp(preds))
+    return np.random.choice(len(preds), p=preds)
+
+start = np.random.randint(0, len(text) - seq_len)
+seed = text[start:start + seq_len]
+print("\nSeed text:\n", seed)
+print("\nGenerated text:\n")
+
+generated = seed
+for _ in range(400):
+    x_pred = np.zeros((1, seq_len, vocab_size))
+    for t, char in enumerate(seed):
+        x_pred[0, t, char_to_idx[char]] = 1
+    preds = model.predict(x_pred, verbose=0)[0]
+    next_idx = sample(preds, 0.5)
+    next_char = idx_to_char[next_idx]
+    generated += next_char
+    seed = seed[1:] + next_char
+print(generated)
+
+plt.plot(history.history['loss'])
+plt.title('Training Loss (LSTM)')
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.grid(True)
+plt.show()

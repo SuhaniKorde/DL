@@ -1,0 +1,92 @@
+# ✅ Facial Emotion Recognition using CNN (Final Version)
+# Offline + High Accuracy + Image Prediction
+
+import tensorflow as tf
+from tensorflow.keras import layers, models
+from tensorflow.keras.preprocessing import image
+import numpy as np, matplotlib.pyplot as plt, os
+
+# --- Folder paths ---
+train_dir = r"D:\train"
+test_dir = r"D:\test"
+img_size = (150, 150)
+batch_size = 32
+
+# --- Load dataset ---
+train_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    train_dir, image_size=img_size, batch_size=batch_size, label_mode='categorical')
+test_ds = tf.keras.preprocessing.image_dataset_from_directory(
+    test_dir, image_size=img_size, batch_size=batch_size, label_mode='categorical')
+
+# ✅ Save class names BEFORE mapping (important)
+class_names = train_ds.class_names
+print("\nEmotion Classes:", class_names)
+
+# --- Prefetch for performance ---
+train_ds = train_ds.prefetch(tf.data.AUTOTUNE)
+test_ds = test_ds.prefetch(tf.data.AUTOTUNE)
+
+# --- Normalize images ---
+normalization_layer = layers.Rescaling(1./255)
+train_ds = train_ds.map(lambda x, y: (normalization_layer(x), y))
+test_ds = test_ds.map(lambda x, y: (normalization_layer(x), y))
+
+# --- Data augmentation (improves accuracy) ---
+data_augmentation = tf.keras.Sequential([
+    layers.RandomFlip("horizontal"),
+    layers.RandomRotation(0.1),
+    layers.RandomZoom(0.1),
+])
+
+# --- CNN Model ---
+model = models.Sequential([
+    data_augmentation,
+    layers.Conv2D(32, (3,3), activation='relu', input_shape=(150,150,3)),
+    layers.MaxPooling2D(2,2),
+
+    layers.Conv2D(64, (3,3), activation='relu'),
+    layers.MaxPooling2D(2,2),
+
+    layers.Conv2D(128, (3,3), activation='relu'),
+    layers.MaxPooling2D(2,2),
+
+    layers.Flatten(),
+    layers.Dense(256, activation='relu'),
+    layers.Dropout(0.4),
+    layers.Dense(len(class_names), activation='softmax')   # auto-detect classes
+])
+
+model.compile(optimizer='adam',
+              loss='categorical_crossentropy',
+              metrics=['accuracy'])
+
+# --- Train model ---
+history = model.fit(train_ds, validation_data=test_ds, epochs=1)
+
+# --- Evaluate model ---
+loss, acc = model.evaluate(test_ds)
+print(f"\nTest Loss: {loss:.4f}")
+print(f"Test Accuracy: {acc:.4f}")
+
+# --- Predict on individual test images ---
+test_images = [
+    r"D:\test\happy\PrivateTest_2146189.jpg",
+    
+]
+
+for img_path in test_images:
+    if not os.path.exists(img_path):
+        print(f"⚠️ Image not found: {img_path}\n")
+        continue
+
+    img = image.load_img(img_path, target_size=img_size)
+    img_array = image.img_to_array(img)
+    img_array = np.expand_dims(img_array, axis=0) / 255.0
+
+    pred = model.predict(img_array)
+    predicted_class = class_names[np.argmax(pred)]
+    confidence = np.max(pred)
+
+    print(f"\nImage: {os.path.basename(img_path)}")
+    print(f"Predicted Emotion: {predicted_class.capitalize()}")
+    print(f"Confidence: {confidence:.4f}")
