@@ -3,38 +3,66 @@ import numpy as np
 import urllib.request
 import matplotlib.pyplot as plt
 
+# 1️⃣ Download and load text
 url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
 urllib.request.urlretrieve(url, 'shakespeare.txt')
 text = open('shakespeare.txt', 'r', encoding='utf-8').read().lower()
 
+# 2️⃣ Character-level preprocessing
 chars = sorted(list(set(text)))
 vocab_size = len(chars)
 char_to_idx = {c: i for i, c in enumerate(chars)}
 idx_to_char = {i: c for i, c in enumerate(chars)}
 
 seq_len = 60
-x_data, y_data = [], []
-for i in range(0, len(text) - seq_len, 3):
-    seq = text[i:i + seq_len]
-    next_char = text[i + seq_len]
-    x_data.append([char_to_idx[c] for c in seq])
-    y_data.append(char_to_idx[next_char])
+step = 3  # smaller step reduces sequences
+sequences = []
+next_chars = []
 
-x = tf.keras.utils.to_categorical(x_data, num_classes=vocab_size)
-y = tf.keras.utils.to_categorical(y_data, num_classes=vocab_size)
+for i in range(0, len(text) - seq_len, step):
+    sequences.append(text[i:i + seq_len])
+    next_chars.append(text[i + seq_len])
 
+print(f"Total sequences: {len(sequences):,}")
+
+# 3️⃣ Build dataset generator
+def data_generator():
+    for seq, next_char in zip(sequences, next_chars):
+        x = np.zeros((seq_len, vocab_size), dtype=np.float32)
+        y = np.zeros(vocab_size, dtype=np.float32)
+        for t, char in enumerate(seq):
+            x[t, char_to_idx[char]] = 1.0
+        y[char_to_idx[next_char]] = 1.0
+        yield x, y
+
+# Create TensorFlow dataset (streamed, not all in RAM)
+batch_size = 128
+dataset = tf.data.Dataset.from_generator(
+    data_generator,
+    output_signature=(
+        tf.TensorSpec(shape=(seq_len, vocab_size), dtype=tf.float32),
+        tf.TensorSpec(shape=(vocab_size,), dtype=tf.float32)
+    )
+).batch(batch_size).prefetch(2)
+
+# 4️⃣ Define RNN model
 model = tf.keras.Sequential([
     tf.keras.layers.SimpleRNN(128, input_shape=(seq_len, vocab_size)),
     tf.keras.layers.Dense(vocab_size, activation='softmax')
 ])
-model.compile(loss='categorical_crossentropy', optimizer='adam')
-history = model.fit(x, y, batch_size=128, epochs=10, verbose=2)
 
+model.compile(loss='categorical_crossentropy', optimizer='adam')
+
+# 5️⃣ Train model safely
+history = model.fit(dataset, epochs=10, verbose=2)
+
+# 6️⃣ Sampling function
 def sample(preds, temperature=1.0):
     preds = np.log(preds + 1e-8) / temperature
     preds = np.exp(preds) / np.sum(np.exp(preds))
     return np.random.choice(len(preds), p=preds)
 
+# 7️⃣ Generate new text
 start = np.random.randint(0, len(text) - seq_len)
 seed = text[start:start + seq_len]
 print("\nSeed text:\n", seed)
@@ -52,6 +80,7 @@ for _ in range(400):
     seed = seed[1:] + next_char
 print(generated)
 
+# 8️⃣ Plot training loss
 plt.plot(history.history['loss'])
 plt.title('Training Loss (RNN)')
 plt.xlabel('Epoch')
